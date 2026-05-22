@@ -11,12 +11,12 @@ pub enum GameState {
 
 /// Update the game state machine.
 /// Returns the new state (or same state if unchanged).
-pub fn update_state(current: &mut GameState, game: &mut Game, input: &InputState) {
+pub async fn update_state(current: &mut GameState, game: &mut Game, input: &InputState) {
     match current {
         GameState::Menu => {
             if input.confirm {
                 *current = GameState::Playing;
-                game.reset();
+                game.reset().await;
             }
         }
         GameState::Playing => {

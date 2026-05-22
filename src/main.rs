@@ -48,7 +48,7 @@ async fn main() {
         let input = InputState::from_keyboard_and_mouse(game.player.position);
 
         // State machine (may change state)
-        update_state(&mut state, &mut game, &input);
+        update_state(&mut state, &mut game, &input).await;
 
         match state {
             GameState::Playing => {
