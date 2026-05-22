@@ -1,154 +1,210 @@
 #![allow(unused)]
 
-use macroquad::prelude::*;
+mod bullet;
+mod enemy;
+mod player;
+mod state;
 
-struct Shape {
-    size: f32,
-    speed: f32,
-    x: f32,
-    y: f32,
-    collided: bool,
+use macroquad::{miniquad::window::quit, prelude::*};
+
+use crate::{bullet::Bullet, enemy::Enemy, player::Player, state::GameState};
+
+fn circles_collide(c1: Vec2, r1: f32, c2: Vec2, r2: f32) -> bool {
+    c1.distance(c2) < r1 + r2
 }
 
-impl Shape {
-    fn collides_with(&self, other: &Self) -> bool {
-        self.rect().overlaps(&other.rect())
+fn get_keyboard_move_dir() -> Vec2 {
+    let mut dir = Vec2::ZERO;
+    if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
+        dir.x += 1.0;
     }
+    if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
+        dir.x -= 1.0;
+    }
+    if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
+        dir.y += 1.0;
+    }
+    if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
+        dir.y -= 1.0;
+    }
+    dir
+}
 
-    fn rect(&self) -> Rect {
-        Rect {
-            x: self.x - self.size / 2.0,
-            y: self.y - self.size / 2.0,
-            w: self.size,
-            h: self.size,
+fn spawn_enemy(spawn_timer: &mut f32, spawn_delay: f32, enemies: &mut Vec<Enemy>) {
+    *spawn_timer -= get_frame_time();
+    if *spawn_timer <= 0.0 {
+        *spawn_timer = spawn_delay;
+        let side = rand::gen_range(0, 4);
+        let pos = match side {
+            0 => vec2(-20.0, rand::gen_range(0.0, screen_height())),
+            1 => vec2(screen_width() + 20.0, rand::gen_range(0.0, screen_height())),
+            2 => vec2(rand::gen_range(0.0, screen_width()), -20.0),
+            _ => vec2(rand::gen_range(0.0, screen_width()), screen_height() + 20.0),
+        };
+        enemies.push(Enemy::new(pos));
+    }
+}
+
+fn update_all_enemies(enemies: &mut Vec<Enemy>, player_position: Vec2, dt: f32) {
+    for enemy in enemies.iter_mut() {
+        enemy.update(dt, player_position);
+    }
+    enemies.retain(|e| e.active);
+}
+
+fn update_all_bullets(bullets: &mut Vec<Bullet>, dt: f32) {
+    for bullet in bullets.iter_mut() {
+        bullet.update(dt);
+    }
+    bullets.retain(|b| b.active);
+}
+
+fn check_bullet_enemy_collisions(bullets: &mut Vec<Bullet>, enemies: &mut Vec<Enemy>) {
+    for bullet in bullets.iter_mut() {
+        if !bullet.active {
+            continue;
+        }
+        for enemy in enemies.iter_mut() {
+            if !enemy.active {
+                continue;
+            }
+            if circles_collide(bullet.position, 5.0, enemy.position, enemy.radius) {
+                bullet.active = false;
+                enemy.health -= 1;
+                if enemy.health <= 0 {
+                    enemy.active = false;
+                }
+                break;
+            }
         }
     }
 }
 
-const MOVEMENT_SPEED: f32 = 200.0;
+fn check_player_collision(player: &mut Player, enemies: &mut Vec<Enemy>) {
+    for enemy in enemies.iter_mut() {
+        if !enemy.active {
+            continue;
+        }
+        if circles_collide(player.position, player.radius, enemy.position, enemy.radius) {
+            if !player.take_damage(enemy.damage) {
+                println!("Game Over!");
+            }
+        }
+    }
+}
 
-#[macroquad::main("SHUT")]
+fn draw_all_entities(player: &Player, bullets: &[Bullet], enemies: &[Enemy]) {
+    player.draw();
+    for bullet in bullets.iter() {
+        bullet.draw();
+    }
+    for enemy in enemies.iter() {
+        enemy.draw();
+    }
+}
+
+fn draw_ui(enemies_count: usize) {
+    draw_text(
+        &format!("Enemies: {}", enemies_count),
+        20.0,
+        20.0,
+        26.0,
+        BLACK,
+    );
+}
+
+#[macroquad::main("shut")]
 async fn main() {
-    rand::srand(miniquad::date::now() as u64);
-    let mut squares: Vec<Shape> = vec![];
-    let mut circle = Shape {
-        size: 16.0,
-        speed: MOVEMENT_SPEED,
-        x: screen_width() / 2.0,
-        y: screen_height() / 2.0,
-        collided: false,
-    };
-    let mut bullets: Vec<Shape> = vec![];
-    let mut gameover = false;
+    let mut game_state = GameState::Menu;
+    let mut player = Player::new(None);
+    let mut bullets: Vec<Bullet> = Vec::new();
+    let mut enemies = Vec::new();
+
+    let mut spawn_timer = 0.0;
+    let spawn_delay = 1.0;
+
     loop {
-        clear_background(DARKPURPLE);
         let dt = get_frame_time();
+        clear_background(GREEN);
 
-        if !gameover {
-            // check player inputs
-            if is_key_down(KeyCode::Right) {
-                circle.x += MOVEMENT_SPEED * dt;
+        match game_state {
+            GameState::Menu => {
+                if is_key_pressed(KeyCode::Escape) {
+                    quit();
+                }
+                draw_text(
+                    "SHUT - Pritisnite ENTER za početak",
+                    screen_width() / 2.0 - 250.0,
+                    screen_height() / 2.0,
+                    40.0,
+                    BLACK,
+                );
+                if is_key_pressed(KeyCode::Enter) {
+                    game_state = GameState::Playing;
+                    player = Player::new(None);
+                    bullets.clear();
+                    enemies.clear();
+                    spawn_timer = 0.0;
+                }
             }
-            if is_key_down(KeyCode::Left) {
-                circle.x -= MOVEMENT_SPEED * dt;
-            }
-            if is_key_down(KeyCode::Down) {
-                circle.y += MOVEMENT_SPEED * dt;
-            }
-            if is_key_down(KeyCode::Up) {
-                circle.y -= MOVEMENT_SPEED * dt;
-            }
-            circle.x = clamp(circle.x, circle.size, screen_width() - circle.size);
-            circle.y = clamp(circle.y, circle.size, screen_height() - circle.size);
+            GameState::Playing => {
+                let move_dir = get_keyboard_move_dir();
+                player.update(dt, move_dir);
+                player.update_timers(dt);
 
-            if is_key_pressed(KeyCode::Space) {
-                bullets.push(Shape {
-                    x: circle.x,
-                    y: circle.y,
-                    speed: circle.speed * 2.0,
-                    size: 5.0,
-                    collided: false,
-                });
+                if let Some(bullet) = player.shoot(dt) {
+                    bullets.push(bullet);
+                }
+
+                spawn_enemy(&mut spawn_timer, spawn_delay, &mut enemies);
+
+                update_all_enemies(&mut enemies, player.position, dt);
+                update_all_bullets(&mut bullets, dt);
+
+                check_bullet_enemy_collisions(&mut bullets, &mut enemies);
+                check_player_collision(&mut player, &mut enemies);
+
+                if player.health <= 0.0 {
+                    game_state = GameState::Dead;
+                }
+                if is_key_pressed(KeyCode::Escape) {
+                    game_state = GameState::Menu;
+                }
+
+                draw_all_entities(&player, &bullets, &enemies);
+                draw_ui(enemies.len());
             }
-
-            // rand generate an enemy
-            if rand::gen_range(0, 99) >= 95 {
-                let size = rand::gen_range(16.0, 64.0);
-                squares.push(Shape {
-                    size,
-                    speed: rand::gen_range(50.0, 150.0),
-                    x: rand::gen_range(size / 2.0, screen_width() - size / 2.0),
-                    y: -size,
-                    collided: false,
-                });
-            }
-
-            // update gravity for enemies
-            for square in &mut squares {
-                square.y += square.speed * dt;
-            }
-            for bullet in &mut bullets {
-                bullet.y -= bullet.speed * dt;
-            }
-
-            // remove all enemies that are off the screen
-            squares.retain(|square| square.y < screen_height() + square.size);
-            bullets.retain(|bullet| bullet.y > 0.0 - bullet.size / 2.0);
-
-            squares.retain(|square| !square.collided);
-            bullets.retain(|bullet| !bullet.collided);
-
-            for square in squares.iter_mut() {
-                for bullet in bullets.iter_mut() {
-                    if bullet.collides_with(square) {
-                        bullet.collided = true;
-                        square.collided = true;
-                    }
+            GameState::Dead => {
+                draw_text(
+                    "GAME OVER - Press R to restart the game",
+                    screen_width() / 2.0 - 320.0,
+                    screen_height() / 2.0,
+                    40.0,
+                    RED,
+                );
+                draw_text(
+                    "Press M for menu",
+                    screen_width() / 2.0 - 220.0,
+                    screen_height() / 2.0 + 60.0,
+                    30.0,
+                    DARKGRAY,
+                );
+                if is_key_pressed(KeyCode::Escape) {
+                    quit();
+                }
+                if is_key_pressed(KeyCode::R) {
+                    game_state = GameState::Playing;
+                    player = Player::new(None);
+                    bullets.clear();
+                    enemies.clear();
+                    spawn_timer = 0.0;
+                }
+                if is_key_pressed(KeyCode::M) {
+                    game_state = GameState::Menu;
                 }
             }
         }
 
-        if squares.iter().any(|square| circle.collides_with(square)) {
-            gameover = true;
-        }
-
-        if gameover && is_key_pressed(KeyCode::Space) {
-            squares.clear();
-            bullets.clear();
-            circle.x = screen_width() / 2.0;
-            circle.y = screen_height() / 2.0;
-            gameover = false;
-        }
-
-        // draw the enemies
-        for square in &squares {
-            draw_rectangle(
-                square.x - square.size / 2.0,
-                square.y - square.size / 2.0,
-                square.size,
-                square.size,
-                GREEN,
-            );
-        }
-
-        // draw the player
-        draw_circle(circle.x, circle.y, circle.size, YELLOW);
-        for bullet in &bullets {
-            draw_circle(bullet.x, bullet.y, bullet.size / 2.0, RED);
-        }
-
-        if gameover {
-            let text = "GAME OVER!";
-            let text_dimensions = measure_text(text, None, 50, 1.0);
-            draw_text(
-                text,
-                screen_width() / 2.0 - text_dimensions.width / 2.0,
-                screen_height() / 2.0,
-                50.0,
-                RED,
-            );
-        }
-
-        next_frame().await
+        next_frame().await;
     }
 }
