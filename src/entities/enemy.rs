@@ -1,3 +1,5 @@
+use crate::components::health::Health;
+use crate::config;
 use macroquad::prelude::*;
 
 pub struct Enemy {
@@ -5,10 +7,10 @@ pub struct Enemy {
     pub velocity: Vec2,
     pub speed: f32,
     pub radius: f32,
-    pub health: i32,
-    pub active: bool,
-    pub color: Color,
+    pub health: Health,
     pub damage: f32,
+    pub color: Color,
+    pub active: bool,
 }
 
 impl Enemy {
@@ -16,26 +18,28 @@ impl Enemy {
         Self {
             position,
             velocity: Vec2::ZERO,
-            speed: 150.0, // slightly slower than player
-            radius: 20.0,
-            health: 1,
-            active: true,
+            speed: config::ENEMY_SPEED,
+            radius: config::ENEMY_RADIUS,
+            health: Health::new(config::ENEMY_HEALTH as f32, 0.0), // enemies have no invincibility
+            damage: config::ENEMY_DAMAGE,
             color: RED,
-            damage: 25.0,
+            active: true,
         }
     }
 
-    pub fn update(&mut self, dt: f32, player_position: Vec2) {
+    /// Move toward player position.
+    pub fn update(&mut self, dt: f32, player_pos: Vec2) {
         if !self.active {
             return;
         }
-        let dir = player_position - self.position;
+        let dir = player_pos - self.position;
         if dir.length() > 0.01 {
             self.velocity = dir.normalize() * self.speed;
         } else {
             self.velocity = Vec2::ZERO;
         }
         self.position += self.velocity * dt;
+        self.health.update(dt);
     }
 
     pub fn draw(&self) {
