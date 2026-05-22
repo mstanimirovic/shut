@@ -32,7 +32,7 @@ jobs:
           cp index.html ./deploy/
 
       - name: Add .nojekyll
-        run: touch dist/.nojekyll
+        run: touch deploy/.nojekyll
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
